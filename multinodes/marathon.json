@@ -1,0 +1,18 @@
+{
+  "id": "ignition",
+  "instances": 1,
+  "cpus": 1,
+  "mem": 512,
+  "ports": [0],
+  "uris": [
+    "http://s3-us-west-2.amazonaws.com/dchesterman.ignite/ignite-mesos-1.3.0-incubating-jar-with-dependencies.jar"
+  ],
+  "env": {
+    "IGNITE_NODE_COUNT": "3",
+    "MESOS_MASTER_URL": "zk://192.168.200.11:2181/mesos",
+    "IGNITE_RUN_CPU_PER_NODE": "1",
+    "IGNITE_MEMORY_PER_NODE": "512",
+    "IGNITE_VERSION": "1.0.5"
+  },
+  "cmd": "java -jar ignite-mesos-1.3.0-incubating-jar-with-dependencies.jar"
+}

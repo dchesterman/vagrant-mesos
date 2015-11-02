@@ -1,17 +1,18 @@
 # Mesos cluster configurations
-mesos_version: "0.22.1"
+mesos_version: "0.24.0"
+mesos_build_version: "-1.0.27.ubuntu1404"
 
 # The numbers of servers
 ##############################
 zk_n: 1          # hostname will be zk1, zk2, …
-master_n: 2      # hostname will be master1,master2,…
-slave_n: 2      # hostname will be slave1,slave2,…
+master_n: 1      # hostname will be master1,master2,…
+slave_n: 3    # hostname will be slave1,slave2,…
 
 # Memory and Cpus setting(only for virtualbox)
 ##########################################
-zk_mem     : 256
+zk_mem     : 512
 zk_cpus    : 1
-master_mem : 256
+master_mem : 512
 master_cpus: 1
 slave_mem  : 1024
 slave_cpus : 2
@@ -20,19 +21,22 @@ slave_cpus : 2
 # When ec2, this should be matched with
 # private addresses defined by subnet_id below.
 ################################################
-zk_ipbase    : "172.31.0."
-master_ipbase: "172.31.1."
-slave_ipbase : "172.31.2."
+#zk_ipbase    : "172.31.0."
+#master_ipbase: "172.31.1."
+#slave_ipbase : "172.31.2."
+zk_ipbase    : "192.168.200."
+master_ipbase: "192.168.201."
+slave_ipbase : "192.168.202."
 
 # experimental frameworks
 marathon_enable: true
-marathon_mem   : 512
+marathon_mem   : 1536
 marathon_cpus  : 1
-marathon_ipbase: "172.31.3."
+#marathon_ipbase: "172.31.3."
+marathon_ipbase: "192.168.203."
 
-chronos_enable: true
 
-# EC2 Configurations
+# EC2 Configuration
 # please choose one region from
 # ["ap-northeast-1", "ap-southeast-1", "eu-west-1", "sa-east-1",
 #  "us-east-1", "us-west-1", "ap-southeast-2", "us-west-2"]
@@ -40,14 +44,14 @@ chronos_enable: true
 #       limit of the elastic ips is no less than (zk_n + master_n + slave_n).
 #       In EC2, the limit default is 5.
 ########################
-access_key_id:  EDIT_HERE
-secret_access_key: EDIT_HERE
-default_vpc: true                     # default vpc or not.
-subnet_id: EDIT_HERE               # VPC subnet id
-security_groups: ["EDIT_HERE"]     # array of VPN security groups. e.g. ['sg*** ']
-keypair_name: EDIT_HERE
-ssh_private_key_path: EDIT_HERE
-region: EDIT_HERE
+access_key_id: AKIAJFLVWPQPDX5QUZNA
+secret_access_key: gc25ncBb7d8SCg1F5PcUlGCemMN5qWyt02g7I4oU
+default_vpc: false                     # default vpc or not.
+subnet_id: subnet-21cd6956               # VPC subnet id
+security_groups: ["sg-37104d52"]     # array of VPN security groups. e.g. ['sg*** ']
+keypair_name: djckeypub
+ssh_private_key_path: /Users/dustin.chesterman/.ssh/id_rsa
+region: us-west-2
 
 # set a custom AMI to use if you need something other than the defaults
 #custom_ami: EDIT_HERE

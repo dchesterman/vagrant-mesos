@@ -12,6 +12,7 @@ def is_plugin(name)
     exit(1)
   end
 end
+
 base_dir = File.expand_path(File.dirname(__FILE__))
 conf = YAML.load_file(File.join(base_dir, "cluster.yml"))
 ninfos = gen_node_infos(conf)
@@ -19,10 +20,7 @@ ninfos = gen_node_infos(conf)
 ## vagrant plugins required:
 # vagrant-aws, vagrant-berkshelf, vagrant-omnibus, vagrant-hosts, vagrant-cachier
 Vagrant.configure("2") do |config|
-  if !conf["custom_ami"] then
-    # https://vagrantcloud.com/everpeace/boxes/mesos
-    config.vm.box = "everpeace/mesos"
-  end
+  config.vm.box = "ubuntu/trusty64"
 
   # enable plugins
   config.berkshelf.enabled = true
@@ -47,8 +45,11 @@ Vagrant.configure("2") do |config|
       cfg.vm.provider :virtualbox do |vb, override|
         override.vm.hostname = ninfo[:hostname]
         override.vm.network :private_network, :ip => ninfo[:ip]
+        # https://github.com/oscar-stack/vagrant-hosts
         override.vm.provision :hosts
 
+        # https://docs.vagrantup.com/v2/virtualbox/configuration.html
+        # Does 'name' do anything without a gui?
         vb.name = 'vagrant-mesos-' + ninfo[:hostname]
         vb.customize ["modifyvm", :id, "--memory", ninfo[:mem], "--cpus", ninfo[:cpus] ]
 
@@ -131,6 +132,9 @@ Vagrant.configure("2") do |config|
             :mesos=> {
               :type         => "mesosphere",
               :version      => conf["mesos_version"],
+              :mesosphere   => {
+                :build_version    => conf["mesos_build_version"]
+              },
               :master_ips   => ninfos[:master].map { |m| "#{m[:ip]}" },
               :slave_ips    => ninfos[:slave].map { |s| "#{s[:ip]}" },
               :master       => if ninfos[:zk].length > 0 then
@@ -152,11 +156,18 @@ Vagrant.configure("2") do |config|
             }
           }
         elsif slave?(ninfo[:hostname]) then
+          chef.add_recipe "java"
           chef.add_recipe "mesos::slave"
           chef.json = {
+            :java => {
+              :jdk_version  => "7"
+            },
             :mesos => {
               :type         => "mesosphere",
               :version      => conf["mesos_version"],
+              :mesosphere   => {
+                :build_version    => conf["mesos_build_version"]
+              },
               :slave        => {
                 :master       => if ninfos[:zk].length > 0 then
                                    "zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(", ")+"/mesos"
@@ -164,42 +175,37 @@ Vagrant.configure("2") do |config|
                                    "#{ninfos[:master][0][:ip]}:5050"
                                  end,
                 :ip           => "#{ninfo[:ip]}",
-                :containerizers => "docker,mesos",
+                :containerizers => "mesos",
                 :isolation => "cgroups/cpu,cgroups/mem",
                 :executor_registration_timeout => "5mins",
               }
             }
           }
+        elsif zk?(ninfo[:hostname]) then
+          chef.add_recipe "apache_zookeeper"
         end
       end
 
       if zk?(ninfo[:hostname]) then
         myid = (/zk([0-9]+)/.match ninfo[:hostname])[1]
         cfg.vm.provision :shell, :inline => <<-SCRIPT
+          sudo service zookeeper stop
           sudo mkdir -p /tmp/zookeeper
           sudo chmod 755 /tmp/zookeeper
           sudo chown zookeeper /tmp/zookeeper
           sudo -u zookeeper echo #{myid} > /tmp/zookeeper/myid
-          sudo -u zookeeper /opt/chef/embedded/bin/ruby /vagrant/scripts/gen_zoo_conf.rb > /etc/zookeeper/conf/zoo.cfg
-          sudo restart zookeeper
+          sudo -u zookeeper /opt/chef/embedded/bin/ruby /vagrant/scripts/gen_zoo_conf.rb > /opt/zookeeper/conf/zoo.cfg
+          sudo service zookeeper start
         SCRIPT
       end
 
-      # If you wanted use `.dockercfg` file
-      # Please place the file simply on this directory
-      if File.exist?(".dockercfg")
-        config.vm.provision :shell, :priviledged => true, :inline => <<-SCRIPT
-          cp /vagrant/.dockercfg /root/.dockercfg
-          chmod 600 /root/.dockercfg
-          chown root /root/.dockercfg
-        SCRIPT
-      end
     end
   end
 
   if conf["marathon_enable"] then
     config.vm.define :marathon do |cfg|
       marathon_ip = conf["marathon_ipbase"]+"11"
+
       cfg.vm.provider :virtualbox do |vb, override|
         override.vm.hostname = "marathon"
         override.vm.network :private_network, :ip => marathon_ip
@@ -218,6 +224,7 @@ Vagrant.configure("2") do |config|
           s.args = "/home/vagrant vagrant"
         end
       end
+
       cfg.vm.provider :aws do |aws, override|
         aws.access_key_id = conf["access_key_id"]
         aws.secret_access_key = conf["secret_access_key"]
@@ -260,10 +267,53 @@ Vagrant.configure("2") do |config|
           SCRIPT
       end
 
+      cfg.vm.provision :chef_solo do |chef|
+        chef.add_recipe "apt"
+        chef.add_recipe "curl"
+        chef.add_recipe "zip"
+        chef.add_recipe "java"
+        chef.add_recipe "sbt-extras"
+        chef.add_recipe "scala"
+        chef.add_recipe "mesos"
+        chef.json = {
+          :java => {
+            :install_flavor => "oracle",
+            :jdk_version  => "8",
+            :oracle => {
+              :accept_oracle_download_terms => "true"
+            }
+          },
+          :mesos => {
+            :type         => "mesosphere",
+            :version      => conf["mesos_version"],
+            :mesosphere   => {
+              :build_version    => conf["mesos_build_version"]
+            }
+          }
+        }
+      end
+
       cfg.vm.provision :shell, :privileged => true, :inline => <<-SCRIPT
         mkdir -p /var/log/marathon
-        kill -KILL `ps augwx | grep marathon | tr -s " " | cut -d' ' -f2`
-        LIBPROCESS_IP=#{marathon_ip} nohup /opt/marathon/bin/start --master #{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/mesos"} --zk_hosts #{ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")} --event_subscriber http_callback > /var/log/marathon/nohup.log 2> /var/log/marathon/nohup.log < /dev/null &
+        RUNNING_MARATHON=`ps augwx | grep marathon | grep -v grep | tr -s " " | cut -d' ' -f2`
+        if [ $RUNNING_MARATHON ]; then kill -9 $RUNNING_MARATHON; fi
+        if [ ! -d /opt/marathon ]; then
+          mkdir -p /opt
+          cd /opt
+          curl -o marathon.zip -L https://github.com/mesosphere/marathon/archive/v0.12.0-RC1.zip
+          unzip marathon.zip
+          rm marathon.zip
+          mv marathon* marathon
+        fi
+        if [ ! -f /opt/marathon/target/scala-2.11/marathon-assembly-0.12.0-RC1.jar ]; then
+          cd /opt/marathon
+          mkdir -p /root/.sbt/launchers/0.13.8
+          curl -L -o /root/.sbt/launchers/0.13.8/sbt-launch.jar http://dl.bintray.com/typesafe/ivy-releases/org.scala-sbt/sbt-launch/0.13.8/sbt-launch.jar
+          sbt update
+          sbt assembly
+        fi
+        echo "/opt/marathon/bin/start --master "#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/mesos"}" --zk "#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/marathon"}" --event_subscriber http_callback"
+        LIBPROCESS_IP=#{marathon_ip} nohup /opt/marathon/bin/start --master #{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/mesos"} --zk #{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/marathon"} --event_subscriber http_callback > /var/log/marathon/nohup.log 2> /var/log/marathon/nohup.log < /dev/null &
         SCRIPT
 
       if conf["chronos_enable"] then
@@ -275,15 +325,6 @@ Vagrant.configure("2") do |config|
           SCRIPT
       end
 
-      # If you wanted use `.dockercfg` file
-      # Please place the file simply on this directory
-      if File.exist?(".dockercfg")
-        config.vm.provision :shell, :priviledged => true, :inline => <<-SCRIPT
-          cp /vagrant/.dockercfg /root/.dockercfg
-          chmod 600 /root/.dockercfg
-          chown root /root/.dockercfg
-          SCRIPT
-      end
     end
   end
 end

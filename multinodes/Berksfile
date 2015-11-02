@@ -1,6 +1,11 @@
 source "https://supermarket.getchef.com"
 
 cookbook 'apt'
-cookbook 'docker',  github: "bflad/chef-docker"
+cookbook 'zip'
+cookbook 'curl'
+cookbook 'java'
+cookbook 'sbt-extras'
+cookbook 'apache_zookeeper'
 cookbook "mesos", github: "everpeace/cookbook-mesos"
+cookbook "scala", github: "RiotGamesCookbooks/scala-cookbook"
 
