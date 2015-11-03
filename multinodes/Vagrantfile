@@ -43,7 +43,8 @@ Vagrant.configure("2") do |config|
     config.vm.define ninfo[:hostname] do |cfg|
 
       cfg.vm.provider :virtualbox do |vb, override|
-        override.vm.hostname = ninfo[:hostname]
+        override.dns.tld = "dev"
+        override.vm.hostname = ninfo[:hostname]+".dev"
         override.vm.network :private_network, :ip => ninfo[:ip]
         # https://github.com/oscar-stack/vagrant-hosts
         override.vm.provision :hosts
@@ -178,6 +179,7 @@ Vagrant.configure("2") do |config|
                 :containerizers => "mesos",
                 :isolation => "cgroups/cpu,cgroups/mem",
                 :executor_registration_timeout => "5mins",
+                :hostname => "#{ninfo[:hostname]}.dev"
               }
             }
           }
@@ -207,7 +209,8 @@ Vagrant.configure("2") do |config|
       marathon_ip = conf["marathon_ipbase"]+"11"
 
       cfg.vm.provider :virtualbox do |vb, override|
-        override.vm.hostname = "marathon"
+        override.dns.tld = "dev"
+        override.vm.hostname = "marathon.dev"
         override.vm.network :private_network, :ip => marathon_ip
         override.vm.provision :hosts
 
@@ -271,16 +274,25 @@ Vagrant.configure("2") do |config|
         chef.add_recipe "apt"
         chef.add_recipe "curl"
         chef.add_recipe "zip"
+        chef.add_recipe "mesos"
         chef.add_recipe "java"
         chef.add_recipe "sbt-extras"
         chef.add_recipe "scala"
-        chef.add_recipe "mesos"
         chef.json = {
           :java => {
             :install_flavor => "oracle",
-            :jdk_version  => "8",
+            :jdk_version => "8",
+            :ark_timeout => 1800,
             :oracle => {
               :accept_oracle_download_terms => "true"
+            },
+            :jdk => {
+              "8" => {
+                :x86_64 => {
+                  :url => "file:///vagrant/jdk-8u65-linux-x64.tar.gz",
+                  :checksum => "88db2aacdc222c2add4d92822f528b7a2101552272db4487f33b38b0b47826e7"
+                }
+              }
             }
           },
           :mesos => {
@@ -312,8 +324,8 @@ Vagrant.configure("2") do |config|
           sbt update
           sbt assembly
         fi
-        echo "/opt/marathon/bin/start --master "#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/mesos"}" --zk "#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/marathon"}" --event_subscriber http_callback"
-        LIBPROCESS_IP=#{marathon_ip} nohup /opt/marathon/bin/start --master #{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/mesos"} --zk #{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/marathon"} --event_subscriber http_callback > /var/log/marathon/nohup.log 2> /var/log/marathon/nohup.log < /dev/null &
+        echo "/opt/marathon/bin/start --master "#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/mesos"}" --zk "#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/marathon"}" --event_subscriber http_callback --hostname marathon.dev"
+        LIBPROCESS_IP=#{marathon_ip} nohup /opt/marathon/bin/start --master #{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/mesos"} --zk #{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/marathon"} --event_subscriber http_callback --hostname marathon.dev > /var/log/marathon/nohup.log 2> /var/log/marathon/nohup.log < /dev/null &
         SCRIPT
 
       if conf["chronos_enable"] then
