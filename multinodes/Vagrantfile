@@ -16,6 +16,7 @@ end
 base_dir = File.expand_path(File.dirname(__FILE__))
 conf = YAML.load_file(File.join(base_dir, "cluster.yml"))
 ninfos = gen_node_infos(conf)
+tld="wd"
 
 ## vagrant plugins required:
 # vagrant-aws, vagrant-berkshelf, vagrant-omnibus, vagrant-hosts, vagrant-cachier
@@ -43,10 +44,10 @@ Vagrant.configure("2") do |config|
     config.vm.define ninfo[:hostname] do |cfg|
 
       cfg.vm.provider :virtualbox do |vb, override|
-        override.dns.tld = "dev"
-        override.vm.hostname = ninfo[:hostname]+".dev"
+        # https://github.com/BerlinVagrant/vagrant-dns
+        override.dns.tld = tld
+        override.vm.hostname = ninfo[:hostname] + "." + tld
         override.vm.network :private_network, :ip => ninfo[:ip]
-        # https://github.com/oscar-stack/vagrant-hosts
         override.vm.provision :hosts
 
         # https://docs.vagrantup.com/v2/virtualbox/configuration.html
@@ -179,7 +180,7 @@ Vagrant.configure("2") do |config|
                 :containerizers => "mesos",
                 :isolation => "cgroups/cpu,cgroups/mem",
                 :executor_registration_timeout => "5mins",
-                :hostname => "#{ninfo[:hostname]}.dev"
+                :hostname => "#{ninfo[:hostname]}.#{tld}"
               }
             }
           }
@@ -209,8 +210,7 @@ Vagrant.configure("2") do |config|
       marathon_ip = conf["marathon_ipbase"]+"11"
 
       cfg.vm.provider :virtualbox do |vb, override|
-        override.dns.tld = "dev"
-        override.vm.hostname = "marathon.dev"
+        override.vm.hostname = "marathon." + tld
         override.vm.network :private_network, :ip => marathon_ip
         override.vm.provision :hosts
 
@@ -306,26 +306,105 @@ Vagrant.configure("2") do |config|
       end
 
       cfg.vm.provision :shell, :privileged => true, :inline => <<-SCRIPT
+        if ! grep -q LIBPROCESS_IP ~/.bashrc; then
+          echo "export LIBPROCESS_IP=#{marathon_ip}" >> ~/.bashrc
+          . ~/.bashrc
+        fi
         mkdir -p /var/log/marathon
         RUNNING_MARATHON=`ps augwx | grep marathon | grep -v grep | tr -s " " | cut -d' ' -f2`
         if [ $RUNNING_MARATHON ]; then kill -9 $RUNNING_MARATHON; fi
-        if [ ! -d /opt/marathon ]; then
-          mkdir -p /opt
-          cd /opt
-          curl -o marathon.zip -L https://github.com/mesosphere/marathon/archive/v0.12.0-RC1.zip
-          unzip marathon.zip
-          rm marathon.zip
-          mv marathon* marathon
+        if ! [[ -f /etc/init.d/marathon || -f /opt/marathon/target/scala-2.11/marathon-assembly-0.12.0-RC1.jar ]]; then
+          if [ ! -f /opt/marathon/target/scala-2.11/marathon-assembly-0.12.0-RC1.jar ]; then
+            # This logic is not totally safe here but close enough
+            if [ ! -d /opt/marathon ]; then
+              mkdir -p /opt
+              cd /opt
+              if [ -d /vagrant/marathon ]; then
+                ln -s /vagrant/marathon marathon
+              else
+                curl -o marathon.zip -L https://github.com/mesosphere/marathon/archive/v0.12.0-RC1.zip
+                unzip marathon.zip
+                rm marathon.zip
+                mv marathon* marathon
+                cd /opt/marathon
+                mkdir -p /root/.sbt/launchers/0.13.8
+                curl -L -o /root/.sbt/launchers/0.13.8/sbt-launch.jar http://dl.bintray.com/typesafe/ivy-releases/org.scala-sbt/sbt-launch/0.13.8/sbt-launch.jar
+                sbt update
+                sbt assembly
+              fi
+            fi
+          fi
+          rm /etc/init.d/marathon
+          update-rc.d marathon remove
+          cat <<-STARTUP > /etc/init.d/marathon
+#! /bin/sh
+### BEGIN INIT INFO
+# Provides:         Marathon
+# Required-Start:    $remote_fs $syslog
+# Required-Stop:     $remote_fs $syslog
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: Marathon service runner
+# Description:       Marathon service runner
+### END INIT INFO
+
+            #
+            # Process finder
+            #
+            marathon_p()
+            {
+                echo \\\`ps -ef | grep marathon | grep java | awk '{ print \\$2}'\\\`
+            }
+
+            #
+            # Function that starts the daemon/service
+            #
+            do_start()
+            {
+                # Return
+                #   0 if daemon has been started
+                if [ "\\$(marathon_p)" ]; then return 1; fi
+                LIBPROCESS_IP=#{marathon_ip} nohup /opt/marathon/bin/start --master \
+#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/mesos"} --zk \
+#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/marathon"} \
+--event_subscriber http_callback --hostname marathon.#{tld} > \
+/var/log/marathon/nohup.log 2> /var/log/marathon/nohup.log < /dev/null &
+                return 0
+            }
+
+            #
+            # Function that stops the daemon/service
+            #
+            do_stop()
+            {
+                # Return
+                #   0 if daemon has been stopped
+                #   1 if daemon was already stopped
+                if [ ! "\\$(marathon_p)" ]; then return 1; fi
+
+                kill -KILL \\$(marathon_p)
+                return 0;
+            }
+
+            case "\\$1" in
+              start)
+                do_start
+                ;;
+              stop)
+                do_stop
+                ;;
+              restart|force-reload)
+                do_stop
+                do_start
+                ;;
+            esac
+STARTUP
+          chmod 755 /etc/init.d/marathon
         fi
-        if [ ! -f /opt/marathon/target/scala-2.11/marathon-assembly-0.12.0-RC1.jar ]; then
-          cd /opt/marathon
-          mkdir -p /root/.sbt/launchers/0.13.8
-          curl -L -o /root/.sbt/launchers/0.13.8/sbt-launch.jar http://dl.bintray.com/typesafe/ivy-releases/org.scala-sbt/sbt-launch/0.13.8/sbt-launch.jar
-          sbt update
-          sbt assembly
-        fi
-        echo "/opt/marathon/bin/start --master "#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/mesos"}" --zk "#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/marathon"}" --event_subscriber http_callback --hostname marathon.dev"
-        LIBPROCESS_IP=#{marathon_ip} nohup /opt/marathon/bin/start --master #{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/mesos"} --zk #{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/marathon"} --event_subscriber http_callback --hostname marathon.dev > /var/log/marathon/nohup.log 2> /var/log/marathon/nohup.log < /dev/null &
+        chmod +x /etc/init.d/marathon
+        update-rc.d marathon defaults
+#        echo "LIBPROCESS_IP=#{marathon_ip} nohup /opt/marathon/bin/start --master "#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/mesos"}" --zk "#{"zk://"+ninfos[:zk].map{|zk| zk[:ip]+":2181"}.join(",")+"/marathon"}" --event_subscriber http_callback --hostname marathon.#{tld}"
+        service marathon restart
         SCRIPT
 
       if conf["chronos_enable"] then
@@ -339,4 +418,5 @@ Vagrant.configure("2") do |config|
 
     end
   end
+
 end
