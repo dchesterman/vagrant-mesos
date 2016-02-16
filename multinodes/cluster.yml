@@ -1,12 +1,12 @@
 # Mesos cluster configurations
-mesos_version: "0.24.0"
-mesos_build_version: "-1.0.27.ubuntu1404"
+mesos_version: "0.27.0"
+mesos_build_version: "-0.2.190.ubuntu1404"
 
 # The numbers of servers
 ##############################
 zk_n: 1          # hostname will be zk1, zk2, …
 master_n: 1      # hostname will be master1,master2,…
-slave_n: 1    # hostname will be slave1,slave2,…
+slave_n: 4    # hostname will be slave1,slave2,…
 
 # Memory and Cpus setting(only for virtualbox)
 ##########################################
@@ -14,8 +14,8 @@ zk_mem     : 512
 zk_cpus    : 1
 master_mem : 512
 master_cpus: 1
-slave_mem  : 5120
-slave_cpus : 2
+slave_mem  : 1536
+slave_cpus : 1
 
 # private ip bases
 # When ec2, this should be matched with
@@ -30,7 +30,7 @@ slave_ipbase : "192.168.202."
 
 # experimental frameworks
 marathon_enable: true
-marathon_mem   : 1536
+marathon_mem   : 512
 marathon_cpus  : 1
 #marathon_ipbase: "172.31.3."
 marathon_ipbase: "192.168.203."

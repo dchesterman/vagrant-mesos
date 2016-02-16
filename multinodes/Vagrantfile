@@ -130,7 +130,24 @@ Vagrant.configure("2") do |config|
 
         if master?(ninfo[:hostname]) then
           chef.add_recipe "mesos::master"
+          chef.add_recipe "java"
           chef.json  = {
+            :java => {
+              :install_flavor => "oracle",
+              :jdk_version => "8",
+              :ark_timeout => 1800,
+              :oracle => {
+                :accept_oracle_download_terms => "true"
+              },
+              :jdk => {
+                "8" => {
+                  :x86_64 => {
+                    :url => "file:///vagrant/jdk-8u65-linux-x64.tar.gz",
+                    :checksum => "88db2aacdc222c2add4d92822f528b7a2101552272db4487f33b38b0b47826e7"
+                  }
+                }
+              }
+            },
             :mesos=> {
               :type         => "mesosphere",
               :version      => conf["mesos_version"],
@@ -158,11 +175,24 @@ Vagrant.configure("2") do |config|
             }
           }
         elsif slave?(ninfo[:hostname]) then
-          chef.add_recipe "java"
           chef.add_recipe "mesos::slave"
+          chef.add_recipe "java"
           chef.json = {
             :java => {
-              :jdk_version  => "7"
+              :install_flavor => "oracle",
+              :jdk_version => "8",
+              :ark_timeout => 1800,
+              :oracle => {
+                :accept_oracle_download_terms => "true"
+              },
+              :jdk => {
+                "8" => {
+                  :x86_64 => {
+                    :url => "file:///vagrant/jdk-8u65-linux-x64.tar.gz",
+                    :checksum => "88db2aacdc222c2add4d92822f528b7a2101552272db4487f33b38b0b47826e7"
+                  }
+                }
+              }
             },
             :mesos => {
               :type         => "mesosphere",
@@ -314,8 +344,8 @@ Vagrant.configure("2") do |config|
         mkdir -p /var/log/marathon
         RUNNING_MARATHON=`ps augwx | grep marathon | grep -v grep | tr -s " " | cut -d' ' -f2`
         if [ $RUNNING_MARATHON ]; then kill -9 $RUNNING_MARATHON; fi
-        if ! [[ -f /etc/init.d/marathon || -f /opt/marathon/target/scala-2.11/marathon-assembly-0.12.0-RC1.jar ]]; then
-          if [ ! -f /opt/marathon/target/scala-2.11/marathon-assembly-0.12.0-RC1.jar ]; then
+        if ! [[ -f /etc/init.d/marathon || -f /opt/marathon/target/scala-2.11/marathon-assembly-0.15.2.jar ]]; then
+          if [ ! -f /opt/marathon/target/scala-2.11/marathon-assembly-0.15.2.jar ]; then
             # This logic is not totally safe here but close enough
             if [ ! -d /opt/marathon ]; then
               mkdir -p /opt
@@ -323,7 +353,7 @@ Vagrant.configure("2") do |config|
               if [ -d /vagrant/marathon ]; then
                 ln -s /vagrant/marathon marathon
               else
-                curl -o marathon.zip -L https://github.com/mesosphere/marathon/archive/v0.12.0-RC1.zip
+                curl -o marathon.zip -L https://github.com/mesosphere/marathon/archive/v0.15.2.zip
                 unzip marathon.zip
                 rm marathon.zip
                 mv marathon* marathon

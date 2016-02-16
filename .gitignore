@@ -3,3 +3,5 @@ Berksfile.lock
 generated
 .idea
 standalone/berks-cookbooks
+multinodes/jdk-8u65-linux-x64.tar.gz
+multinodes/marathon.json
